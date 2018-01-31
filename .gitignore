@@ -1,0 +1,15 @@
+.idea/
+__pycache__/
+.sass-cache/
+.cache/
+
+env/
+hooks/
+platforms/
+plugins/
+build/
+node_modules/
+bower_modules/
+package-lock.json
+__javascript__/
+

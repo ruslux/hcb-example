@@ -1,0 +1,47 @@
+version: '2'
+
+services:
+  frontend:
+    image: hcb_frontend
+    build:
+      context: .
+      dockerfile: ./frontend.dockerfile
+    volumes:
+      - "./src/client:/var/www/src/client"
+
+      - "./src:/var/www/node_modules/src"
+
+      - "./templates:/var/www/templates"
+      - "./static:/var/www/static:rw"
+      - "./libs:/var/www/static/libs"
+
+      - "./package.json:/var/www/package.json:rw"
+      - "./babel-hook.js:/var/www/babel-hook.js"
+      - "./client.config.js:/var/www/client.config.js"
+      - "./requirements.txt:/var/www/requirements.txt"
+    command: bash -c "npm run-script build"
+
+  backend:
+    image: hcb_backend
+    build:
+      context: .
+      dockerfile: ./backend.dockerfile
+    volumes:
+      - "./src/server:/var/www/src/server"
+    command: bash -c "python ./src/server/entrypoint.py"
+
+  nginx:
+    image: nginx:latest
+    volumes:
+      - "./nginx.conf:/etc/nginx/nginx.conf"
+      - "./static:/var/www/static"
+      - "./libs:/var/www/static/libs"
+      - "./src/client:/var/www/static/client"
+      - "./templates:/var/www/static/templates"
+    ports:
+      - "80:80"
+    links:
+      - backend
+    depends_on:
+      - backend
+      - frontend
