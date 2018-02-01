@@ -28,7 +28,8 @@ services:
       dockerfile: ./backend.dockerfile
     volumes:
       - "./src/server:/var/www/src/server"
-    command: bash -c "python ./src/server/entrypoint.py"
+      - "./src/tests:/var/www/src/tests"
+    command: bash -c "py.test src/tests && python ./src/server/entrypoint.py"
 
   nginx:
     image: nginx:latest
