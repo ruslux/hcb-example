@@ -4,12 +4,22 @@ import string
 import json
 
 import aiohttp
-import logging
 from aiohttp import web, WSMsgType
 
 
 def session(votes):
+    """
+    Обертка-воркер для мультипросессорного запуска
+    :param votes: Общий для процессов словарь с голосами пользователей. 
+        Если токен присутствует в нем, значит у пользователя верная сессия
+    :return: 
+    """
     async def handler(request):
+        """
+        Метод создает сессию и устанавливает токен как заголовок
+        :param request: 
+        :return: 
+        """
         _token = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
         try:
@@ -23,7 +33,20 @@ def session(votes):
 
 
 def vote(votes, cache):
+    """
+    Обертка-воркер для мультипросессорного запуска
+    :param votes: Общий для процессов словарь с голосами пользователей. 
+        Если токен присутствует в нем, значит у пользователя верная сессия
+    :param cache: Общий для процессов словарь с голосами пользователей, которые онлайн
+    :return: 
+    """
     async def handler(request):
+        """
+        Метод принимает голос от пользователя. 
+        И обновляет кэш, если пользователь уже голосовал ранее и сейчас находится онлайн.
+        :param request: 
+        :return: 
+        """
         _token = request.headers.get('x-token', 'unknown')
 
         if _token not in votes:
@@ -53,10 +76,25 @@ def sum_votes(votes):
 
 
 def online(votes, cache):
+    """
+    Обертка-воркер для мультипросессорного запуска
+    :param votes: Общий для процессов словарь с голосами пользователей.
+        Если токен присутствует в нем, значит у пользователя верная сессия
+    :param cache: Общий для процессов словарь с голосами пользователей, которые онлайн
+    :return: 
+    """
     async def handler(request):
+        """
+        Если пользователь с токеном, то считаем его как "онлайн" и засчитываем его голос при определении суммы.
+        :param request: 
+        :return: 
+        """
         _token = request.headers.get('x-token', None)
 
         if _token in votes:
+            """
+            Кэшируются ТОЛЬКО онлайн пользователи, поэтому при подсчете суммы можнно просто использовать кэш
+            """
             cache[_token] = votes[_token]
 
         ws = web.WebSocketResponse()
@@ -67,9 +105,17 @@ def online(votes, cache):
                 if msg.type == WSMsgType.TEXT and msg.data == 'get_votes':
                     _sum = str(sum_votes(cache))
                     await ws.send_str(_sum)
+                elif msg.data == 'close':
+                    await ws.close()
+                    """
+                    Чистим кэш - пользователь больше не онлайн
+                    """
+                    del cache[_token]
+                    print("Socket closed gracefully")
             except Exception as exc:
-                logging.error("Error is:", exc)
                 await ws.close()
+                del cache[_token]
+                print("Socket closed with error:", exc)
         return ws
 
     return handler
