@@ -1,9 +1,11 @@
 import os
 import random
 import string
+import json
 
 import aiohttp
-from aiohttp import web
+import logging
+from aiohttp import web, WSMsgType
 
 
 def session(votes):
@@ -27,11 +29,10 @@ def vote(votes, cache):
         if _token not in votes:
             return web.Response(status=401)
 
-        _data = await request.json()
-
         try:
+            _data = await request.json()
             _number = int(_data.get('number', 0))
-        except ValueError:
+        except (ValueError, json.decoder.JSONDecodeError):
             return web.Response(status=400)
 
         if 0 < _number <= 10:
@@ -47,6 +48,10 @@ def vote(votes, cache):
     return handler
 
 
+def sum_votes(votes):
+    return sum(votes.values())
+
+
 def online(votes, cache):
     async def handler(request):
         _token = request.headers.get('x-token', None)
@@ -55,19 +60,16 @@ def online(votes, cache):
             cache[_token] = votes[_token]
 
         ws = web.WebSocketResponse()
+
         await ws.prepare(request)
-
         async for msg in ws:
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                if msg.data == 'close':
-                    await ws.close()
-                else:
-                    await ws.send_str(msg.data + '/answer')
-            elif msg.type == aiohttp.WSMsgType.ERROR:
-                print('ws connection closed with exception %s' %
-                      ws.exception())
-
-        print('websocket connection closed')
+            try:
+                if msg.type == WSMsgType.TEXT and msg.data == 'get_votes':
+                    _sum = str(sum_votes(cache))
+                    await ws.send_str(_sum)
+            except Exception as exc:
+                logging.error("Error is:", exc)
+                await ws.close()
         return ws
 
     return handler

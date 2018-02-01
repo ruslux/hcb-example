@@ -1,43 +1,53 @@
 import os
 import multiprocessing
 import time
+import json
 from random import choice
 from unittest import TestCase
 
 import aiohttp
 import asyncio
 
+from aiohttp import WSMsgType
+
 from src.server.entrypoint import worker
 
 
-async def make_requests(port, answers):
+LIMIT = 100
+
+
+async def make_requests(port, answers, index):
     _session = aiohttp.ClientSession()
     _response = await _session.post(f'http://0.0.0.0:{port}/session', data={})
     _token = _response.headers['x-token']
+    assert _response.status == 201
 
-    answers.append(1)
+    _session = aiohttp.ClientSession()
+    _response = await _session.post(
+        f'http://0.0.0.0:{port}/vote', data=json.dumps({'number': 1}), headers={'x-token': _token}
+    )
+    assert _response.status == 201
 
-    # ws = await session.ws_connect(
-    #     'http://webscoket-server.org/endpoint')
-    #
-    # while True:
-    #     msg = await ws.receive()
-    #
-    #     if msg.tp == aiohttp.MsgType.text:
-    #         if msg.data == 'close':
-    #             await ws.close()
-    #             break
-    #         else:
-    #             ws.send_str(msg.data + '/answer')
-    #     elif msg.tp == aiohttp.MsgType.closed:
-    #         break
-    #     elif msg.tp == aiohttp.MsgType.error:
-    #         break
+    ws = await _session.ws_connect(f'http://0.0.0.0:{port}/online', headers={'x-token': _token})
+
+    _keep_connection = True
+
+    while _keep_connection:
+        await ws.send_str('get_votes')
+        msg = await ws.receive()
+        if msg.type == WSMsgType.TEXT:
+            _sum = int(msg.data)
+            answers[index] = _sum
+            _keep_connection = _sum < LIMIT
+        else:
+            _keep_connection = False
+
+    await ws.close()
 
 
-def run(port, answers):
+def run(port, answers, index):
     _loop = asyncio.get_event_loop()
-    _result = _loop.run_until_complete(make_requests(port, answers))
+    _result = _loop.run_until_complete(make_requests(port, answers, index))
 
 
 class LoadTestCase(TestCase):
@@ -60,14 +70,21 @@ class LoadTestCase(TestCase):
     def test_10k(self):
         _answers = self.manager.list()
 
+        for _answer in range(LIMIT):
+            _answers.append(0)
+
         _ports = [7999 + i for i in range(self.cpu_count)]
         _processes = [
-            multiprocessing.Process(target=run, args=(choice(_ports), _answers,)) for i in range(100)
+            multiprocessing.Process(target=run, args=(choice(_ports), _answers, i,)) for i in range(LIMIT)
         ]
 
         for _process in _processes:
             _process.daemon = True
             _process.start()
-            _process.join()
 
-        self.assertEqual(len(_answers), 100)
+        _sum = sum(_answers)
+
+        while _sum < LIMIT * LIMIT:
+            _sum = sum(_answers)
+
+        self.assertEqual(_sum, LIMIT * LIMIT)
